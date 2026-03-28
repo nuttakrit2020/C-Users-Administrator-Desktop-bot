@@ -10,7 +10,8 @@ from collections import deque
 # ==========================================
 #  ใส่ TOKEN ของบอทตรงนี้นะ~~
 # ==========================================
-TOKEN = "MTQ4NzMyNjczOTg0NjY2MDE3Nw.Ge8VLD.9rNRdWGjOjoCtOd6jsnC3u7nVTV7IolbTsbW8c"
+import os
+TOKEN = os.environ.get("MTQ4NzMyNjczOTg0NjY2MDE3Nw.Ge8VLD.9rNRdWGjOjoCtOd6jsnC3u7nVTV7IolbTsbW8c")
 # ==========================================
 
 intents = discord.Intents.default()
