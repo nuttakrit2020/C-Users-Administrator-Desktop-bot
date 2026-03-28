@@ -6,12 +6,18 @@ import asyncio
 import re
 import random
 from collections import deque
+import os
+from dotenv import load_dotenv
 
 # ==========================================
-#  ใส่ TOKEN ของบอทตรงนี้นะ~~
+# โหลดค่าตัวแปรจากไฟล์ .env (ปลอดภัย 100%)
 # ==========================================
-import os
-TOKEN = os.environ.get("MTQ4NzMyNjczOTg0NjY2MDE3Nw.GTUxNA.QD4o2tHq9zObryuCV_Rjbpj70RCcPv4GTGNpXM")
+load_dotenv()
+TOKEN = os.getenv("DISCORD_TOKEN")
+
+if not TOKEN:
+    print("❌ ไม่พบ Token! กรุณาตรวจสอบไฟล์ .env ว่าใส่รหัสถูกต้องหรือยังนะ")
+    exit()
 # ==========================================
 
 intents = discord.Intents.default()
