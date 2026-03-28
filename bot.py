@@ -11,7 +11,7 @@ from collections import deque
 #  ใส่ TOKEN ของบอทตรงนี้นะ~~
 # ==========================================
 import os
-TOKEN = os.environ.get("MTQ4NzMyNjczOTg0NjY2MDE3Nw.Ge8VLD.9rNRdWGjOjoCtOd6jsnC3u7nVTV7IolbTsbW8c")
+TOKEN = os.environ.get("MTQ4NzMyNjczOTg0NjY2MDE3Nw.GTUxNA.QD4o2tHq9zObryuCV_Rjbpj70RCcPv4GTGNpXM")
 # ==========================================
 
 intents = discord.Intents.default()
