@@ -38,15 +38,17 @@ def get_data(guild_id):
     return guilds_data[guild_id]
 
 # ==========================================
-#  ตั้งค่า yt-dlp และ FFmpeg (แก้ไข Format ให้ยืดหยุ่นที่สุด)
+#  ตั้งค่า yt-dlp และ FFmpeg
 # ==========================================
-YDL_OPTS = {
-    "format": "bestaudio/best / best", # <--- แก้ไขจุดที่ 1: ให้หาไฟล์อะไรก็ได้ที่เล่นได้
+
+# กฎพื้นฐานสำหรับการค้นหา (ไม่เน้น Format เพื่อไม่ให้ Error)
+YDL_OPTS_BASE = {
     "quiet": True,
     "no_warnings": True,
     "extract_flat": "in_playlist",
-    "socket_timeout": 15,
-    "cookiefile": "cookies.txt", 
+    "socket_timeout": 20,
+    "cookiefile": "cookies.txt",
+    "nocheckcertificate": True, # ข้ามการเช็คใบรับรองกันปัญหาเน็ตเวิร์ก
 }
 
 FFMPEG_OPTS = {
@@ -61,21 +63,31 @@ async def fetch_tracks(query: str):
     loop = asyncio.get_event_loop()
     is_url = re.match(r"https?://", query)
     search = query if is_url else f"ytsearch5:{query}"
-    opts = {**YDL_OPTS, "extract_flat": "in_playlist" if is_url else False}
-    with yt_dlp.YoutubeDL(opts) as ydl:
+    
+    # ตอนค้นหา เราจะไม่ใส่ 'format' เพื่อป้องกัน Error: Requested format is not available
+    with yt_dlp.YoutubeDL(YDL_OPTS_BASE) as ydl:
         info = await loop.run_in_executor(None, lambda: ydl.extract_info(search, download=False))
     return info.get("entries", [info]) if "entries" in info else [info]
 
 async def get_audio_url(webpage_url: str):
     loop = asyncio.get_event_loop()
-    opts = {**YDL_OPTS, "noplaylist": True, "extract_flat": False}
-    with yt_dlp.YoutubeDL(opts) as ydl:
+    
+    # ตอนจะเล่น ค่อยกำหนดฟอร์แมตที่ยืดหยุ่นที่สุด
+    extract_opts = {
+        **YDL_OPTS_BASE,
+        "format": "bestaudio/best", # พยายามหาเสียงก่อน ถ้าไม่ได้ค่อยเอาอย่างอื่น
+        "noplaylist": True,
+        "extract_flat": False
+    }
+    
+    with yt_dlp.YoutubeDL(extract_opts) as ydl:
         info = await loop.run_in_executor(None, lambda: ydl.extract_info(webpage_url, download=False))
     
-    # <--- แก้ไขจุดที่ 2: ดึง URL โดยตรง ไม่ต้องกรองเยอะจน Error
+    # ดึง URL ที่ดีที่สุดมา
     if 'url' in info:
         return info['url']
     elif 'formats' in info and len(info['formats']) > 0:
+        # ถ้าไม่มี URL ตรงๆ ให้เลือกเอาฟอร์แมตแรกที่เจอ
         return info['formats'][0]['url']
     return webpage_url
 
@@ -110,7 +122,7 @@ async def play_next(guild: discord.Guild):
         )
         vc.play(source, after=lambda e: asyncio.run_coroutine_threadsafe(play_next(guild), bot.loop))
     except Exception as e:
-        print(f"[เล่นไม่ได้] {e}")
+        print(f"❌ [เล่นไม่ได้] {e}")
         asyncio.run_coroutine_threadsafe(play_next(guild), bot.loop)
 
 # ==========================================
@@ -126,7 +138,7 @@ STOP_MSGS    = ["โอเค หยุดแล้วนะ บาย~ 👋", "
 def r(msgs): return random.choice(msgs)
 
 # ==========================================
-#  คำสั่งหลัก
+#  คำสั่ง
 # ==========================================
 
 @tree.command(name="เล่น", description="🎵 เล่นเพลงจาก YouTube — ใส่ชื่อเพลงหรือลิ้งก์ได้เลย!")
@@ -152,7 +164,8 @@ async def play(interaction: discord.Interaction, เพลง: str):
         tracks = [t for t in tracks if t][:50]
     except Exception as e:
         print(f"🚨 [Error ในคำสั่งเล่น]: {e}")
-        return await interaction.edit_original_response(content=f"หาไม่เจออ่ะ ลองใหม่นะ 😢 (เกิดจาก: {str(e)[:50]}...)")
+        # บอก Error ที่เกิดขึ้นจริงให้ผู้ใช้ทราบ
+        return await interaction.edit_original_response(content=f"หาไม่เจออ่ะ เพราะ: `{str(e)[:100]}`")
 
     for t in tracks:
         data["queue"].append(t)
