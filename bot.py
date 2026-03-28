@@ -38,17 +38,18 @@ def get_data(guild_id):
     return guilds_data[guild_id]
 
 # ==========================================
-#  ตั้งค่า yt-dlp และ FFmpeg
+#  ตั้งค่า yt-dlp และ FFmpeg (จุดตายของปัญหา)
 # ==========================================
 
-# กฎพื้นฐานสำหรับการค้นหา (ไม่เน้น Format เพื่อไม่ให้ Error)
+# เราจะไม่ใส่ 'format' ไว้ในตัวแปรหลัก เพื่อให้การค้นหา (Search) ไม่พัง
 YDL_OPTS_BASE = {
     "quiet": True,
     "no_warnings": True,
     "extract_flat": "in_playlist",
-    "socket_timeout": 20,
+    "socket_timeout": 30,
     "cookiefile": "cookies.txt",
-    "nocheckcertificate": True, # ข้ามการเช็คใบรับรองกันปัญหาเน็ตเวิร์ก
+    "nocheckcertificate": True,
+    "ignoreerrors": True, # ให้ข้ามผ่านถ้าเจอวิดีโอที่เสียในเพลย์ลิสต์
 }
 
 FFMPEG_OPTS = {
@@ -64,32 +65,47 @@ async def fetch_tracks(query: str):
     is_url = re.match(r"https?://", query)
     search = query if is_url else f"ytsearch5:{query}"
     
-    # ตอนค้นหา เราจะไม่ใส่ 'format' เพื่อป้องกัน Error: Requested format is not available
+    # ใช้ Option พื้นฐานที่ไม่ระบุ Format ในการดึงข้อมูลเบื้องต้น
     with yt_dlp.YoutubeDL(YDL_OPTS_BASE) as ydl:
         info = await loop.run_in_executor(None, lambda: ydl.extract_info(search, download=False))
+    
+    if not info:
+        return []
+        
     return info.get("entries", [info]) if "entries" in info else [info]
 
 async def get_audio_url(webpage_url: str):
     loop = asyncio.get_event_loop()
     
-    # ตอนจะเล่น ค่อยกำหนดฟอร์แมตที่ยืดหยุ่นที่สุด
-    extract_opts = {
-        **YDL_OPTS_BASE,
-        "format": "bestaudio/best", # พยายามหาเสียงก่อน ถ้าไม่ได้ค่อยเอาอย่างอื่น
-        "noplaylist": True,
-        "extract_flat": False
-    }
+    # กลยุทธ์: ลองดึง "เสียงที่ดีที่สุด" ถ้าไม่ได้ ให้เอา "อะไรก็ได้" (วิดีโอ) มาเลย
+    # วิธีนี้จะแก้ปัญหา "Requested format is not available" ได้ชัวร์ที่สุด
+    formats_to_try = [
+        "bestaudio/best", 
+        "best" # ตัวเลือกสำรองสุดท้าย (เอาวิดีโอมาเลย)
+    ]
     
-    with yt_dlp.YoutubeDL(extract_opts) as ydl:
-        info = await loop.run_in_executor(None, lambda: ydl.extract_info(webpage_url, download=False))
-    
-    # ดึง URL ที่ดีที่สุดมา
-    if 'url' in info:
-        return info['url']
-    elif 'formats' in info and len(info['formats']) > 0:
-        # ถ้าไม่มี URL ตรงๆ ให้เลือกเอาฟอร์แมตแรกที่เจอ
-        return info['formats'][0]['url']
-    return webpage_url
+    last_error = None
+    for fmt in formats_to_try:
+        try:
+            extract_opts = {
+                **YDL_OPTS_BASE,
+                "format": fmt,
+                "noplaylist": True,
+                "extract_flat": False
+            }
+            with yt_dlp.YoutubeDL(extract_opts) as ydl:
+                info = await loop.run_in_executor(None, lambda: ydl.extract_info(webpage_url, download=False))
+                
+                if info and 'url' in info:
+                    return info['url']
+                elif info and 'formats' in info:
+                    return info['formats'][0]['url']
+        except Exception as e:
+            last_error = e
+            continue
+            
+    # ถ้าลองทุกอย่างแล้วยังไม่ได้ ให้โยน Error ออกไป
+    raise last_error or Exception("ไม่สามารถดึงข้อมูลสตรีมได้")
 
 # ==========================================
 #  เล่นเพลงต่อไป
@@ -109,20 +125,28 @@ async def play_next(guild: discord.Guild):
         data["current"] = track
     else:
         data["current"] = None
+        # รอ 5 นาทีถ้าไม่มีเพลงเล่นต่อ ให้บอทออกจากห้อง
         await asyncio.sleep(300)
-        if vc and not vc.is_playing():
+        if vc and not vc.is_playing() and not data["queue"]:
             await vc.disconnect()
         return
 
     try:
+        # ดึง URL สำหรับสตรีม
         url = await get_audio_url(track.get("webpage_url") or track.get("url"))
+        
+        # สร้างตัวเล่นเสียง
         source = discord.PCMVolumeTransformer(
             discord.FFmpegPCMAudio(url, **FFMPEG_OPTS),
             volume=data["volume"]
         )
+        
+        # เล่นเพลง และตั้งค่าให้เล่นเพลงถัดไปเมื่อจบ
         vc.play(source, after=lambda e: asyncio.run_coroutine_threadsafe(play_next(guild), bot.loop))
+        
     except Exception as e:
-        print(f"❌ [เล่นไม่ได้] {e}")
+        print(f"❌ [Error ในการเล่นเพลง]: {e}")
+        # ถ้าเพลงนี้เล่นไม่ได้ ให้ข้ามไปเพลงถัดไปเลย
         asyncio.run_coroutine_threadsafe(play_next(guild), bot.loop)
 
 # ==========================================
@@ -138,7 +162,7 @@ STOP_MSGS    = ["โอเค หยุดแล้วนะ บาย~ 👋", "
 def r(msgs): return random.choice(msgs)
 
 # ==========================================
-#  คำสั่ง
+#  คำสั่งหลัก
 # ==========================================
 
 @tree.command(name="เล่น", description="🎵 เล่นเพลงจาก YouTube — ใส่ชื่อเพลงหรือลิ้งก์ได้เลย!")
@@ -151,6 +175,8 @@ async def play(interaction: discord.Interaction, เพลง: str):
 
     vc = interaction.guild.voice_client
     ch = interaction.user.voice.channel
+    
+    # จัดการเรื่องการเข้าห้องเสียง
     if vc and vc.channel != ch:
         await vc.move_to(ch)
     elif not vc:
@@ -160,22 +186,31 @@ async def play(interaction: discord.Interaction, เพลง: str):
     await interaction.followup.send(r(PLAY_MSGS))
 
     try:
+        # ค้นหาเพลง
         tracks = await fetch_tracks(เพลง)
+        # กรองเฉพาะเพลงที่หาข้อมูลได้ และจำกัดไว้แค่ 50 เพลงกรณีเป็น Playlist ใหญ่
         tracks = [t for t in tracks if t][:50]
+        
+        if not tracks:
+            return await interaction.edit_original_response(content="หาไม่เจอจริงๆ อ่ะ ลองเปลี่ยนคำค้นหาดูนะ 😢")
+            
     except Exception as e:
-        print(f"🚨 [Error ในคำสั่งเล่น]: {e}")
-        # บอก Error ที่เกิดขึ้นจริงให้ผู้ใช้ทราบ
-        return await interaction.edit_original_response(content=f"หาไม่เจออ่ะ เพราะ: `{str(e)[:100]}`")
+        print(f"🚨 [Error ตอนค้นหา]: {e}")
+        return await interaction.edit_original_response(content=f"เกิดข้อผิดพลาดตอนค้นหาจ้า: `{str(e)[:100]}`")
 
+    # เพิ่มเพลงลงคิว
     for t in tracks:
         data["queue"].append(t)
 
+    # ส่งข้อความยืนยัน
     if len(tracks) == 1:
-        msg = f"{r(ADDED_MSGS)}\n🎵 **{tracks[0].get('title','?')}**"
+        msg = f"{r(ADDED_MSGS)}\n🎵 **{tracks[0].get('title','ไม่ทราบชื่อ')}**"
     else:
         msg = f"เพิ่ม **{len(tracks)} เพลง** ลงคิวแล้วจ้า 🎶"
 
     await interaction.edit_original_response(content=msg)
+    
+    # ถ้าบอทยังไม่ได้เล่นเพลงอะไรอยู่ ให้เริ่มเล่นทันที
     if not vc.is_playing() and not vc.is_paused():
         await play_next(interaction.guild)
 
@@ -183,7 +218,7 @@ async def play(interaction: discord.Interaction, เพลง: str):
 @tree.command(name="ข้าม", description="⏭ ข้ามเพลงนี้ไปเพลงหน้าเลย")
 async def skip(interaction: discord.Interaction):
     vc = interaction.guild.voice_client
-    if vc and vc.is_playing():
+    if vc and (vc.is_playing() or vc.is_paused()):
         vc.stop()
         await interaction.response.send_message(r(SKIP_MSGS))
     else:
@@ -232,9 +267,9 @@ async def queue_cmd(interaction: discord.Interaction):
 
     lines = []
     if cur:
-        lines.append(f"🎵 **กำลังเล่น:** {cur.get('title','?')}")
+        lines.append(f"🎵 **กำลังเล่น:** {cur.get('title','ไม่ทราบชื่อ')}")
     for i, t in enumerate(q[:15], 1):
-        lines.append(f"`{i}.` {t.get('title','?')}")
+        lines.append(f"`{i}.` {t.get('title','ไม่ทราบชื่อ')}")
     if len(q) > 15:
         lines.append(f"...และอีก {len(q)-15} เพลงนะ 🎶")
 
@@ -250,7 +285,7 @@ async def nowplaying(interaction: discord.Interaction):
     if not t:
         return await interaction.response.send_message("ยังไม่มีเพลงเลยนะ สั่ง /เล่น ได้เลย! 🎵")
 
-    embed = discord.Embed(title="🎵 เพลงที่เล่นอยู่ตอนนี้", description=f"**{t.get('title','?')}**", color=0xFF8FAB)
+    embed = discord.Embed(title="🎵 เพลงที่เล่นอยู่ตอนนี้", description=f"**{t.get('title',' ไม่ทราบชื่อ')}**", color=0xFF8FAB)
     if t.get("thumbnail"):
         embed.set_thumbnail(url=t["thumbnail"])
     if t.get("duration"):
@@ -258,10 +293,11 @@ async def nowplaying(interaction: discord.Interaction):
         embed.add_field(name="⏱ ความยาว", value=f"{m}:{s:02d}")
     if t.get("uploader"):
         embed.add_field(name="📺 ช่อง", value=t["uploader"])
+    
     loop_txt = "🔂 เพลงนี้" if data["loop"] else ("🔁 ทั้งหมด" if data["loop_all"] else "ปิด")
     embed.add_field(name="🔁 Loop", value=loop_txt)
     embed.add_field(name="🔊 เสียง", value=f"{int(data['volume']*100)}%")
-    embed.set_footer(text="สนุกกับเพลงนะ~ 🥰")
+    embed.set_footer(text="ฟังเพลงให้สนุกนะจ๊ะ~ 🥰")
     await interaction.response.send_message(embed=embed)
 
 
@@ -269,12 +305,14 @@ async def nowplaying(interaction: discord.Interaction):
 @app_commands.describe(ระดับ="0 = เงียบ, 100 = ดังสุด")
 async def volume(interaction: discord.Interaction, ระดับ: int):
     if not 0 <= ระดับ <= 100:
-        return await interaction.response.send_message("ใส่ 0-100 นะ อย่าเกินนะ~ 😅")
+        return await interaction.response.send_message("ใส่ตัวเลข 0-100 นะจ๊ะ~ 😅")
+    
     data = get_data(interaction.guild_id)
     data["volume"] = ระดับ / 100
     vc = interaction.guild.voice_client
     if vc and vc.source:
         vc.source.volume = data["volume"]
+    
     emoji = "🔇" if ระดับ == 0 else "🔉" if ระดับ < 50 else "🔊"
     await interaction.response.send_message(f"{emoji} ปรับเสียงเป็น **{ระดับ}%** แล้วนะ~")
 
@@ -285,94 +323,91 @@ async def volume(interaction: discord.Interaction, ระดับ: int):
     app_commands.Choice(name="เพลงนี้ — วนซ้ำแค่เพลงนี้", value="one"),
     app_commands.Choice(name="ทั้งหมด — วนซ้ำทั้ง queue", value="all"),
 ])
-@app_commands.describe(โหมด="เลือกโหมดวนซ้ำ")
 async def loop_cmd(interaction: discord.Interaction, โหมด: str):
     data = get_data(interaction.guild_id)
     if โหมด == "off":
         data["loop"] = data["loop_all"] = False
-        await interaction.response.send_message("โอเค ปิด loop แล้วนะ 🎵")
+        await interaction.response.send_message("โอเค ปิดการวนซ้ำแล้วจ้า 🎵")
     elif โหมด == "one":
         data["loop"] = True
         data["loop_all"] = False
-        await interaction.response.send_message("🔂 วนซ้ำเพลงนี้ไปเรื่อยๆ เลย~")
+        await interaction.response.send_message("🔂 ตั้งค่าวนซ้ำเพลงนี้แล้วจ้า~")
     else:
         data["loop"] = False
         data["loop_all"] = True
-        await interaction.response.send_message("🔁 วนซ้ำทั้ง queue เลยนะ~")
+        await interaction.response.send_message("🔁 ตั้งค่าวนซ้ำทั้งคิวเพลงแล้วนะ~")
 
 
-@tree.command(name="สลับ", description="🔀 สลับลำดับเพลงใน queue แบบ random")
+@tree.command(name="สลับ", description="🔀 สลับลำดับเพลงในคิว")
 async def shuffle(interaction: discord.Interaction):
     data = get_data(interaction.guild_id)
     q = list(data["queue"])
     if not q:
-        return await interaction.response.send_message("คิวว่างอยู่นะ~ 😅")
+        return await interaction.response.send_message("คิวว่างอยู่นะจ๊ะ สลับไม่ได้หรอก 😅")
+    
     random.shuffle(q)
     data["queue"] = deque(q)
-    await interaction.response.send_message(f"🔀 สลับเพลงแบบ random แล้ว! {len(q)} เพลง พร้อมเลย~")
+    await interaction.response.send_message(f"🔀 สลับเพลงในคิวเรียบร้อยแล้วจ้า!")
 
 
-@tree.command(name="ลบ", description="🗑 ลบเพลงออกจาก queue")
-@app_commands.describe(ลำดับ="ลำดับที่ต้องการลบ ดูได้จาก /คิว")
+@tree.command(name="ลบ", description="🗑 ลบเพลงออกจากคิว")
+@app_commands.describe(ลำดับ="ลำดับเพลงที่ต้องการลบ (ดูจาก /คิว)")
 async def remove(interaction: discord.Interaction, ลำดับ: int):
     data = get_data(interaction.guild_id)
     q = list(data["queue"])
     if ลำดับ < 1 or ลำดับ > len(q):
-        return await interaction.response.send_message("ลำดับไม่ถูกต้องนะ ลองดู /คิว ก่อน~ 🤔")
+        return await interaction.response.send_message("ใส่ลำดับไม่ถูกอ่ะ ลองเช็ค /คิว อีกทีนะ 🤔")
+    
     removed = q.pop(ลำดับ - 1)
     data["queue"] = deque(q)
-    await interaction.response.send_message(f"🗑 ลบแล้ว: **{removed.get('title','?')}** ออกจากคิวแล้วนะ~")
+    await interaction.response.send_message(f"🗑 ลบเพลง **{removed.get('title')}** ออกจากคิวแล้วจ้า")
 
 
-@tree.command(name="ช่วย", description="💡 ดูคำสั่งทั้งหมดของบอท")
+@tree.command(name="ช่วย", description="💡 ดูคำสั่งทั้งหมด")
 async def help_cmd(interaction: discord.Interaction):
     embed = discord.Embed(
-        title="🎵 บอทเพลงสุดน่ารัก~",
-        description="สั่งได้เลยนะ! บอทพร้อมเสมอ 💕",
+        title="🎵 บอทเพลงสุดคิ้วท์ พร้อมรับใช้แล้วจ้า!",
+        description="รายการคำสั่งที่คุณใช้ได้:",
         color=0xFF8FAB
     )
-    commands_list = [
-        ("🎵 /เล่น [ชื่อ/ลิ้งก์]", "เล่นเพลงหรือเพิ่ม queue"),
-        ("⏭ /ข้าม", "ข้ามไปเพลงหน้า"),
-        ("⏸ /หยุด", "หยุดชั่วคราว"),
-        ("▶️ /เล่นต่อ", "เล่นต่อจากที่หยุด"),
-        ("⏹ /ปิด", "หยุดและออกห้อง"),
-        ("📋 /คิว", "ดูเพลงทั้งหมดในคิว"),
-        ("🎶 /เพลงนี้", "ดูข้อมูลเพลงที่เล่นอยู่"),
-        ("🔊 /เสียง [0-100]", "ปรับระดับเสียง"),
-        ("🔁 /วนซ้ำ", "ตั้งค่าวนซ้ำ"),
-        ("🔀 /สลับ", "สลับเพลง random"),
-        ("🗑 /ลบ [ลำดับ]", "ลบเพลงออกจากคิว"),
+    cmds = [
+        ("🎵 /เล่น", "ใส่ชื่อเพลงหรือลิ้งก์เพื่อเล่นเพลง"),
+        ("⏭ /ข้าม", "ข้ามเพลงที่กำลังเล่น"),
+        ("⏸ /หยุด", "หยุดเพลงชั่วคราว"),
+        ("▶️ /เล่นต่อ", "เล่นเพลงต่อจากที่หยุด"),
+        ("⏹ /ปิด", "หยุดเล่นและไล่บอทออกจากห้อง"),
+        ("📋 /คิว", "ดูรายการเพลงที่รอลำดับอยู่"),
+        ("🎶 /เพลงนี้", "ดูข้อมูลเพลงที่เล่นตอนนี้"),
+        ("🔊 /เสียง", "ปรับความดัง (0-100)"),
+        ("🔁 /วนซ้ำ", "ตั้งค่าเล่นซ้ำ"),
+        ("🔀 /สลับ", "สลับลำดับเพลงในคิว"),
+        ("🗑 /ลบ", "ลบเพลงที่ต้องการออกจากคิว"),
     ]
-    for name, desc in commands_list:
+    for name, desc in cmds:
         embed.add_field(name=name, value=desc, inline=False)
-    embed.set_footer(text="ฟังเพลงให้สนุกนะ~ 🌸")
+    
+    embed.set_footer(text="มีปัญหาอะไร เรียกหาแอดมินได้นะจ๊ะ! 🌸")
     await interaction.response.send_message(embed=embed)
 
-
 # ==========================================
-#  ออกห้องเสียงเมื่อไม่มีคน
+#  จัดการห้องเสียง
 # ==========================================
 @bot.event
 async def on_voice_state_update(member, before, after):
-    if member.bot:
-        return
+    if member.bot: return
     vc = member.guild.voice_client
-    if vc and all(m.bot for m in vc.channel.members):
-        await asyncio.sleep(60)
-        vc = member.guild.voice_client
-        if vc and not vc.is_playing():
+    if vc and len(vc.channel.members) == 1: # เหลือแค่บอทคนเดียว
+        await asyncio.sleep(30) # รอ 30 วินาทีเผื่อเขากลับมา
+        if len(vc.channel.members) == 1:
             await vc.disconnect()
-
 
 @bot.event
 async def on_ready():
     await tree.sync()
     await bot.change_presence(activity=discord.Activity(
-        type=discord.ActivityType.listening,
-        name="เพลงสุดชิล~ 🎵"
+        type=discord.ActivityType.listening, 
+        name="เพลงสุดฟิน~ 🎵"
     ))
-    print(f"✅ บอทออนไลน์แล้ว! {bot.user} พร้อมเล่นเพลงแล้ว~")
-
+    print(f"✅ บอทออนไลน์แล้วในชื่อ: {bot.user}")
 
 bot.run(TOKEN)
