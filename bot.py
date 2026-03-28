@@ -10,14 +10,12 @@ import os
 
 # ==========================================
 # ดึง Token จาก Environment Variable ของระบบ
-# วิธีนี้ปลอดภัยที่สุดสำหรับเอาขึ้น GitHub โค้ดคลีนๆ เลย
 # ==========================================
 TOKEN = os.environ.get("DISCORD_TOKEN")
 
 if not TOKEN:
     print("❌ ไม่พบ Token! อย่าลืมตั้งค่า Environment Variable ชื่อ DISCORD_TOKEN ก่อนรันบอทนะครับ")
     exit()
-# ==========================================
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -40,15 +38,15 @@ def get_data(guild_id):
     return guilds_data[guild_id]
 
 # ==========================================
-#  ตั้งค่า yt-dlp และ FFmpeg
+#  ตั้งค่า yt-dlp และ FFmpeg (แก้ไข Format ให้ยืดหยุ่นที่สุด)
 # ==========================================
 YDL_OPTS = {
-    "format": "bestaudio/best", # <--- แก้เป็นแบบนี้ (หรือ "best" เฉยๆ ก็ได้ถ้ายังไม่ได้)
+    "format": "bestaudio/best / best", # <--- แก้ไขจุดที่ 1: ให้หาไฟล์อะไรก็ได้ที่เล่นได้
     "quiet": True,
     "no_warnings": True,
     "extract_flat": "in_playlist",
-    "socket_timeout": 10,
-    "cookiefile": "cookies.txt",
+    "socket_timeout": 15,
+    "cookiefile": "cookies.txt", 
 }
 
 FFMPEG_OPTS = {
@@ -74,9 +72,12 @@ async def get_audio_url(webpage_url: str):
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = await loop.run_in_executor(None, lambda: ydl.extract_info(webpage_url, download=False))
     
-    # แก้ตรงนี้: ถ้าหาไฟล์เสียงล้วนไม่เจอ ให้เอา URL ของไฟล์ที่ดีที่สุดมาเลย
-    # FFmpeg ของเราใน FFMPEG_OPTS มีคำสั่ง -vn (Video None) อยู่แล้ว มันจะดึงแค่เสียงมาเล่นเองอัตโนมัติ
-    return info.get('url') if 'url' in info else info['formats'][0]['url']
+    # <--- แก้ไขจุดที่ 2: ดึง URL โดยตรง ไม่ต้องกรองเยอะจน Error
+    if 'url' in info:
+        return info['url']
+    elif 'formats' in info and len(info['formats']) > 0:
+        return info['formats'][0]['url']
+    return webpage_url
 
 # ==========================================
 #  เล่นเพลงต่อไป
@@ -125,7 +126,7 @@ STOP_MSGS    = ["โอเค หยุดแล้วนะ บาย~ 👋", "
 def r(msgs): return random.choice(msgs)
 
 # ==========================================
-#  คำสั่ง
+#  คำสั่งหลัก
 # ==========================================
 
 @tree.command(name="เล่น", description="🎵 เล่นเพลงจาก YouTube — ใส่ชื่อเพลงหรือลิ้งก์ได้เลย!")
@@ -150,7 +151,6 @@ async def play(interaction: discord.Interaction, เพลง: str):
         tracks = await fetch_tracks(เพลง)
         tracks = [t for t in tracks if t][:50]
     except Exception as e:
-        # แก้ไขจุดนี้: ให้พิมพ์ Error ลงใน Log ของ Railway เพื่อให้เรารู้ว่าทำไมหาไม่เจอ
         print(f"🚨 [Error ในคำสั่งเล่น]: {e}")
         return await interaction.edit_original_response(content=f"หาไม่เจออ่ะ ลองใหม่นะ 😢 (เกิดจาก: {str(e)[:50]}...)")
 
