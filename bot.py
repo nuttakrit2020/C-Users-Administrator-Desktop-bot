@@ -48,6 +48,7 @@ YDL_OPTS = {
     "no_warnings": True,
     "extract_flat": "in_playlist",
     "socket_timeout": 10,
+    "cookiefile": "cookies.txt",  # <--- เพิ่มบรรทัดนี้ลงไปครับ! 🍪
 }
 
 FFMPEG_OPTS = {
