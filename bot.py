@@ -34,21 +34,22 @@ def get_data(guild_id):
         }
     return guilds_data[guild_id]
 
-# ==========================================
-# 2. ตั้งค่า yt-dlp & FFmpeg (สูตรลับกัน Error)
-# ==========================================
-# แก้ไขส่วน YDL_OPTS ใน bot.py ของบอสเป็นอันนี้ครับ
 YDL_OPTS = {
     "quiet": True,
-    "format": "ba/b", # เปลี่ยนจาก bestaudio เป็น ba/b (ยืดหยุ่นกว่า)
+    # --- จุดเปลี่ยนสำคัญ ---
+    "format": "best", # สั่งเอาไฟล์ที่ดีที่สุด (วิดีโอ+เสียง) เพื่อลดการโดน YouTube ตรวจจับ
     "cookiefile": "cookies.txt",
     "nocheckcertificate": True,
     "ignoreerrors": False,
     "extract_flat": False,
-    # ลบ extractor_args ออกชั่วคราวเพื่อให้มันใช้ค่าเริ่มต้นที่เสถียรกว่า
+    "no_warnings": True,
+    "default_search": "ytsearch",
+    # ใช้ User-Agent ปลอมว่าเป็น Browser จริงๆ
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
 
 FFMPEG_OPTS = {
+    # สั่ง FFmpeg ให้เลือกเอาเฉพาะเสียง (-vn) จากไฟล์วิดีโอที่ดึงมา
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin",
     "options": "-vn -af loudnorm=I=-16:TP=-1.5:LRA=11",
 }
