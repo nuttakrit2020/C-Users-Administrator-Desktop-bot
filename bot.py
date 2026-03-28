@@ -7,16 +7,15 @@ import re
 import random
 from collections import deque
 import os
-from dotenv import load_dotenv
 
 # ==========================================
-# โหลดค่าตัวแปรจากไฟล์ .env (ปลอดภัย 100%)
+# ดึง Token จาก Environment Variable ของระบบ
+# วิธีนี้ปลอดภัยที่สุดสำหรับเอาขึ้น GitHub โค้ดคลีนๆ เลย
 # ==========================================
-load_dotenv()
-TOKEN = os.getenv("DISCORD_TOKEN")
+TOKEN = os.environ.get("DISCORD_TOKEN")
 
 if not TOKEN:
-    print("❌ ไม่พบ Token! กรุณาตรวจสอบไฟล์ .env ว่าใส่รหัสถูกต้องหรือยังนะ")
+    print("❌ ไม่พบ Token! อย่าลืมตั้งค่า Environment Variable ชื่อ DISCORD_TOKEN ก่อนรันบอทนะครับ")
     exit()
 # ==========================================
 
