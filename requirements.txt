@@ -1,4 +1,3 @@
-discord.py[voice]
+discord.py
+yt-dlp>=2025.01.15
 PyNaCl
-davey
-yt-dlp
