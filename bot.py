@@ -111,41 +111,52 @@ async def play_next(guild: discord.Guild):
 
 @tree.command(name="เล่น", description="🎵 เล่นเพลงจาก YouTube")
 async def play(interaction: discord.Interaction, เพลง: str):
-    await interaction.response.defer()
+    # --- 1. รีบทักทาย Discord ทันที (ห้ามมีอะไรคั่นก่อนบรรทัดนี้) ---
+    try:
+        await interaction.response.defer(thinking=True) 
+    except:
+        return # ถ้า Defer ไม่ทันก็ช่างมัน ให้จบการทำงานไปเลย
 
+    # --- 2. เช็คเงื่อนไขต่างๆ ---
     if not interaction.user.voice:
         return await interaction.followup.send("บอสครับ! เข้าห้องเสียงก่อนนะ 🥺")
 
-    # เชื่อมต่อห้องเสียง (รองรับระบบ DAVE)
     vc = interaction.guild.voice_client
     if not vc:
-        vc = await interaction.user.voice.channel.connect(self_deaf=True)
+        try:
+            vc = await interaction.user.voice.channel.connect(self_deaf=True)
+        except Exception as e:
+            return await interaction.followup.send(f"เข้าห้องไม่ได้ครับ: {e}")
 
     data = get_data(interaction.guild_id)
-    await interaction.followup.send(r(PLAY_MSGS))
 
+    # --- 3. ค้นหาเพลง (ใช้ Followup แทน Edit Original เพราะปลอดภัยกว่า) ---
     try:
+        # ใช้ลิ้งก์ตรงๆ หรือค้นหา
         with yt_dlp.YoutubeDL(YDL_OPTS) as ydl:
-            # ค้นหาเพลง
             search_info = await asyncio.get_event_loop().run_in_executor(
                 None, lambda: ydl.extract_info(f"ytsearch1:{เพลง}", download=False)
             )
             
             if not search_info or 'entries' not in search_info or not search_info['entries']:
-                return await interaction.edit_original_response(content="หาเพลงไม่เจอจริงๆ ครับบอส!")
+                return await interaction.followup.send("หาเพลงไม่เจอจริงๆ ครับบอส!")
             
             track = search_info['entries'][0]
             if track is None:
-                return await interaction.edit_original_response(content="YouTube บล็อกการเข้าถึง (Signature Error)")
+                return await interaction.followup.send("YouTube บล็อกเพลงนี้ (Signature Error)")
 
             data["queue"].append(track)
-            await interaction.edit_original_response(content=f"เพิ่มเพลง **{track.get('title')}** แล้วจ้า! 🎶")
+            await interaction.followup.send(f"เพิ่มเพลง **{track.get('title')}** แล้วจ้า! 🎶")
 
         if not vc.is_playing():
             await play_next(interaction.guild)
 
     except Exception as e:
-        await interaction.edit_original_response(content=f"เกิดข้อผิดพลาด: `{e}`")
+        # ถ้าพังตรงนี้ ให้ส่ง Error บอกบอส
+        try:
+            await interaction.followup.send(f"เกิดข้อผิดพลาด: `{e}`")
+        except:
+            print(f"Error: {e}")
 
 @tree.command(name="ข้าม", description="⏭ ข้ามไปเพลงถัดไป")
 async def skip(interaction: discord.Interaction):
