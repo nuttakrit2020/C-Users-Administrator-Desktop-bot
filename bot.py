@@ -43,8 +43,7 @@ def get_data(guild_id):
 #  ตั้งค่า yt-dlp และ FFmpeg
 # ==========================================
 YDL_OPTS = {
-    # แก้บรรทัดนี้ครับ จาก "bestaudio/best" เป็นด้านล่างนี้
-    "format": "bestaudio/best / best", 
+    "format": "bestaudio/best", # <--- แก้เป็นแบบนี้ (หรือ "best" เฉยๆ ก็ได้ถ้ายังไม่ได้)
     "quiet": True,
     "no_warnings": True,
     "extract_flat": "in_playlist",
@@ -74,8 +73,10 @@ async def get_audio_url(webpage_url: str):
     opts = {**YDL_OPTS, "noplaylist": True, "extract_flat": False}
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = await loop.run_in_executor(None, lambda: ydl.extract_info(webpage_url, download=False))
-    audio = [f for f in info.get("formats", []) if f.get("acodec") != "none" and f.get("vcodec") == "none"]
-    return max(audio, key=lambda f: f.get("abr") or 0)["url"] if audio else info["url"]
+    
+    # แก้ตรงนี้: ถ้าหาไฟล์เสียงล้วนไม่เจอ ให้เอา URL ของไฟล์ที่ดีที่สุดมาเลย
+    # FFmpeg ของเราใน FFMPEG_OPTS มีคำสั่ง -vn (Video None) อยู่แล้ว มันจะดึงแค่เสียงมาเล่นเองอัตโนมัติ
+    return info.get('url') if 'url' in info else info['formats'][0]['url']
 
 # ==========================================
 #  เล่นเพลงต่อไป
