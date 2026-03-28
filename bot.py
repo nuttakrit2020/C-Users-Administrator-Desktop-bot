@@ -34,26 +34,45 @@ def get_data(guild_id):
         }
     return guilds_data[guild_id]
 
+# 1. ปรับ Option ให้ขอ Video ตัวเต็ม (หลอกว่าคนดู)
 YDL_OPTS = {
     "quiet": True,
-    # --- จุดเปลี่ยนสำคัญ ---
-    "format": "best", # สั่งเอาไฟล์ที่ดีที่สุด (วิดีโอ+เสียง) เพื่อลดการโดน YouTube ตรวจจับ
+    "format": "best",  # <<-- เปลี่ยนเป็น best เพื่อเอา Video+Audio (ห้ามใช้ bestaudio)
     "cookiefile": "cookies.txt",
     "nocheckcertificate": True,
     "ignoreerrors": False,
     "extract_flat": False,
     "no_warnings": True,
-    "default_search": "ytsearch",
-    # ใช้ User-Agent ปลอมว่าเป็น Browser จริงๆ
-    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "source_address": "0.0.0.0",
+    # ใส่ User-Agent ของ Browser จริงๆ ลงไป
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 }
 
+# 2. ปรับ FFmpeg ให้กรองเอาแต่เสียงจากวิดีโอที่ดึงมา
 FFMPEG_OPTS = {
-    # สั่ง FFmpeg ให้เลือกเอาเฉพาะเสียง (-vn) จากไฟล์วิดีโอที่ดึงมา
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin",
-    "options": "-vn -af loudnorm=I=-16:TP=-1.5:LRA=11",
+    "options": "-vn -af loudnorm=I=-16:TP=-1.5:LRA=11", # -vn คือการตัดวิดีโอทิ้ง เอาแต่เสียง
 }
 
+async def get_audio_url(webpage_url: str):
+    loop = asyncio.get_event_loop()
+    # ใช้ YDL_OPTS ตัวที่ขอ 'best'
+    with yt_dlp.YoutubeDL(YDL_OPTS) as ydl:
+        info = await loop.run_in_executor(None, lambda: ydl.extract_info(webpage_url, download=False))
+    
+    if not info: 
+        raise Exception("YouTube บล็อกการเข้าถึงเพลงนี้ครับบอส")
+
+    # ถ้า YouTube ยอมคาย URL มาให้ (ไม่ว่าจะวิดีโอหรือเสียง) เราเอาหมด!
+    if 'url' in info:
+        return info['url']
+    
+    # ถ้าหาไม่เจอจริงๆ ให้ลองควานหาจาก formats
+    for f in info.get('formats', []):
+        if f.get('url'):
+            return f['url']
+            
+    raise Exception("ไม่สามารถดึง URL สำหรับสตรีมได้")
 # ==========================================
 # 3. ข้อความตอบกลับสุ่มๆ
 # ==========================================
