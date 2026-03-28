@@ -1,3 +1,4 @@
-discord.py
+discord.py>=2.5.0
 yt-dlp>=2025.01.15
 PyNaCl
+davey
