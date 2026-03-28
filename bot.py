@@ -43,12 +43,13 @@ def get_data(guild_id):
 #  ตั้งค่า yt-dlp และ FFmpeg
 # ==========================================
 YDL_OPTS = {
-    "format": "bestaudio/best",
+    # แก้บรรทัดนี้ครับ จาก "bestaudio/best" เป็นด้านล่างนี้
+    "format": "bestaudio/best / best", 
     "quiet": True,
     "no_warnings": True,
     "extract_flat": "in_playlist",
     "socket_timeout": 10,
-    "cookiefile": "cookies.txt",  # <--- เพิ่มบรรทัดนี้เพื่อแก้ปัญหา YouTube บล็อกบอท 🍪
+    "cookiefile": "cookies.txt",
 }
 
 FFMPEG_OPTS = {
