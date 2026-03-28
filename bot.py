@@ -41,14 +41,16 @@ def get_data(guild_id):
 # ใช้ 'best' แทน 'bestaudio' เพื่อหลอก YouTube ว่าเป็นคนดูวิดีโอ
 YDL_OPTS = {
     "quiet": True,
-    "format": "best", 
-    "cookiefile": "cookies.txt",  # บอสต้องมีไฟล์นี้ในโฟลเดอร์บอทนะ!
+    "format": "ba[ext=m4a]/b[ext=mp4]/best", # บีบให้เอา m4a ก่อน ถ้าไม่ได้เอา mp4 ถ้าไม่ได้เอาอะไรก็ได้
+    "cookiefile": "cookies.txt",
     "nocheckcertificate": True,
     "ignoreerrors": False,
     "extract_flat": False,
     "no_warnings": True,
-    "default_search": "ytsearch",
-    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+    "source_address": "0.0.0.0",
+    "force_generic_extractor": False,
+    # ใส่ลูกเล่นหลอกว่าเรามาจากเบราว์เซอร์มือถือ
+    "user_agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36"
 }
 
 # FFmpeg จะกรองเอาแค่เสียงจากไฟล์วิดีโอที่ดึงมา
